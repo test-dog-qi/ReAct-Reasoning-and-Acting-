@@ -1,8 +1,10 @@
 # ReAct 提示词模板
+import re
+from pyexpat.errors import messages
 from typing import List
 
 from ReAct.llms import HelloAgentsLLM
-from ReAct.tools import ToolExecutor
+from ReAct.tools import ToolExecutor, search
 
 REACT_PROMPT_TEMPLATE = """
 请注意，你是一个有能力调用外部工具的智能助手。
@@ -26,9 +28,30 @@ History: {history}
 class ReactAgent:
     def __init__(self, llm_clinet: HelloAgentsLLM, toolExecutor: ToolExecutor, max_steps: int):
         self.llm_clinet = llm_clinet
-        self.toolExecutor = toolExecutor
+        self.tool_executor = toolExecutor
         self.max_steps = max_steps
         self.history: List[str] = []
+
+    def _parse_output(self, text: str) -> str:
+        """
+        解析LLM的输出，提取Thought和Action。
+        """
+        # Thought: 匹配到 Action: 或文本末尾
+        thought_match = re.search(r"Thought:\s*(.*?)(?=\nAction:|$)", text, re.DOTALL)
+        # Action: 匹配到文本末尾
+        action_match = re.search(r"Action:\s*(.*?)$", text, re.DOTALL)
+        thought = thought_match.group(1).strip() if thought_match else None
+        action = action_match.group(1).strip() if action_match else None
+        return thought, action
+
+    def _parse_action(self, action_text: str):
+        """
+        解析Action字符串，提取工具名称和输入。
+        """
+        match = re.match(r"(\w+)\[(.*)\]", action_text, re.DOTALL)
+        if match:
+            return match.group(1), match.group(2)
+        return None, None
 
     def run(self, question: str) -> str:
         """
@@ -37,12 +60,77 @@ class ReactAgent:
         self.history = [] # 每次运行时重置历史记录
         current_step = 0
 
-        with current_step < self.max_steps:
+        while current_step < self.max_steps:
             current_step += 1
             print(f"--- 第 {current_step} 步 ---")
 
             # 1.格式化提示词
-
+            tools_desc = self.tool_executor.getAvailableTools()
+            history_str = "\n".join(self.history)
+            prompt = REACT_PROMPT_TEMPLATE.format(
+                tools=tools_desc,
+                question=question,
+                history=history_str
+            )
 
             # 2.调用llm进行思考
+            messages = [{"role": "user", "content": prompt}]
+            response_text = self.llm_clinet.think(messages)
 
+            if not response_text:
+                print("错误:LLM未能返回有效响应。")
+                break
+
+            # 3.解析llm的输出
+            thought, action = self._parse_output(response_text)
+            if thought:
+                print(f"思考: {thought}")
+
+            if not action:
+                print("警告:未能解析出有效的Action，流程终止。")
+                break
+
+            # 4.执行Action
+            if action.startswith("Finish"):
+                # 如果是Finish指令，提取最终答案并结束
+                final_answer = re.match(r"Finish\[(.*)\]", action).group(1)
+                print(f"🎉 最终答案: {final_answer}")
+                return final_answer
+
+            tool_name, tool_input = self._parse_action(action)
+            if not tool_name or not tool_input:
+                # ... 处理无效Action格式 ...
+                continue
+
+            print(f"🎬 行动: {tool_name}[{tool_input}]")
+
+            tool_function = self.tool_executor.getTool(tool_name)
+            if not tool_function:
+                observation = f"错误:未找到名为 '{tool_name}' 的工具。"
+            else:
+                observation = tool_function(tool_input)
+
+            print(f"👀 观察: {observation}")
+
+            # 将本轮的Action和Observation添加到历史记录中
+            self.history.append(f"Action: {action}")
+            self.history.append(f"Observation: {observation}")
+
+        # 循环结束
+        print("已达到最大步数，流程终止。")
+        return None
+
+
+if __name__ == '__main__':
+
+    # 初始化llm和tool
+    llm_clinet = HelloAgentsLLM()
+    tool_executor = ToolExecutor()
+
+    # 注册工具
+    search_description = "一个网页搜索引擎。当你需要回答关于时事、事实以及在你的知识库中找不到的信息时，应使用此工具。"
+    tool_executor.registerTool("Search", search_description, search)
+
+    RA = ReactAgent(llm_clinet,tool_executor,5)
+    question = "华为最新手机型号及主要卖点"
+    RA.run(question)
