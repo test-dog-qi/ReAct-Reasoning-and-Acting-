@@ -1,6 +1,4 @@
 import os
-from http.client import responses
-from pyexpat.errors import messages
 
 from openai import OpenAI
 from dotenv import load_dotenv
@@ -49,9 +47,9 @@ class HelloAgentsLLM:
             collected_content = []
             # llm每返回一段内容就打印出来
             for chunk in response:
-                contnet = chunk.choices[0].delta.content or ""
-                print(contnet, end="", flush=True)
-                collected_content.append(contnet)
+                content = chunk.choices[0].delta.content or ""
+                print(content, end="", flush=True)
+                collected_content.append(content)
             print()  # 流式输出结束后换行
             return "".join(collected_content)
 
