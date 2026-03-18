@@ -20,9 +20,9 @@ class HelloAgentsLLM:
         :param baseUrl:
         :param timeout: 超时时间
         """
-        self.model = model or os.getenv("LLM_MODEL_ID")
-        apiKey = apiKey or os.getenv("LLM_API_KEY")
-        baseUrl = baseUrl or os.getenv("LLM_BASE_URL")
+        self.model = model or os.getenv("LONGCAT_MODEL_ID")
+        apiKey = apiKey or os.getenv("LONGCAT_API_KEY")
+        baseUrl = baseUrl or os.getenv("LONGCAT_BASE_URL")
         timeout = timeout or int(os.getenv("LLM_TIMEOUT", 60))
 
         if not all([self.model, apiKey, baseUrl]):
